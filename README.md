@@ -1,4 +1,4 @@
-# prediction_model_R
+# Prediction model with R
 For a school assignment, create, predict, and assess a model in R. We have used WHO data and did analysis on that. Data could be used from anywhere. For example, use Google dataset search, Kaggle datasets, a dataset from an R package, or something that has been collected ourselves.
 
 ## Requirements
