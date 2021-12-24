@@ -1,0 +1,377 @@
+---
+title: "Assignment Prediction Model"
+group members: Denisa Caragea, Keven Quach, Joram Scholten, Samar Khan & Richard Chou
+mainfont: Arial
+fontsize: 12pt
+urlcolor: blue
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: false
+    toc_float: true
+    df_print: paged
+    theme: paper
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages('formatR')
+``` 
+
+# Life expectancy dataset
+
+The dataset consists of data collected from WHO (health factors, life expectancy) and economic data from the United Nation website and was published on Kaggle (https://www.kaggle.com/kumarajarshi/life-expectancy-who). It has been observed that in the past 15 years, there has been a huge development in the health sector resulting in improvement of human mortality rates especially in the developing nations in comparison to the past 30 years. Data from 2000-2015 for 193 countries has been collected and was merged together. <br>
+
+Most of the missing data was for population, Hepatitis B and GDP. The missing data were from less known countries like Vanuatu, Tonga, Togo, Cabo Verde etc. Finding all data for these countries was difficult and hence, it was decided that we exclude these countries from the final model data-set. The final merged file(final dataset) consists of 22 Columns and 2938 rows which meant 20 predicting variables. All predicting variables was then divided into several broad categories: Immunization related factors, Mortality factors, Economical factors and Social factors.
+
+Predictor explanations: <br>
+Status: Is a country already developed or is it still developing? <br>
+Adult mortality: Adult Mortality Rates of both sexes (probability of dying between 15 and 60 years per 1000  population) <br>
+Infant deaths: Number of Infant Deaths per 1000 population <br>
+Alcohol: Alcohol, recorded per capita (15+) consumption (in litres of pure alcohol) <br>
+Percentage expenditure: Expenditure on health as a percentage of Gross Domestic Product per capita(%) <br>
+Hepatitis B: Hepatitis B (HepB) immunization coverage among 1-year-olds (%) <br>
+Measles: Measles - number of reported cases per 1000 population <br>
+BMI: Average Body Mass Index of entire population <br>
+Under five deaths: Number of under-five deaths per 1000 population <br>
+Polio: Polio (Pol3) immunization coverage among 1-year-olds (%) <br>
+Total expenditure: General government expenditure on health as a percentage of total government expenditure (%) <br>
+Diphtheria: Diphtheria tetanus toxoid and pertussis (DTP3) immunization coverage among 1-year-olds (%) <br>
+HIV/AIDS: Deaths per 1 000 live births HIV/AIDS (0-4 years) <br>
+GDP: Gross Domestic Product per capita (in USD) <br>
+Population: Population of the country <br>
+Thinness 1-19: Prevalence of thinness among children and adolescents for Age 10 to 19 (% ) <br>
+Thinness 5-9: Prevalence of thinness among children for Age 5 to 9(%) <br>
+Income comp: Human Development Index in terms of income composition of resources (index ranging from 0 to 1) <br>
+Schooling: Number of years of Schooling(years) <br>
+
+
+For this assignment, the life expectancy will be predicted via a linear regression model and a regression model with random forests. This to find relaitonships within the life expectancy data set from the WHO. 
+
+
+### Libraries
+
+```{r load_packages, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(randomForest)
+library(hexbin)
+
+library(GGally)
+library(ggplot2)
+library(plotly)
+library(ISLR)
+library(MASS)
+library(dplyr)
+library(jtools)
+```
+
+
+# Data Exploration
+```{r}
+life_expectancy <- read.csv("life-expectancy.csv")
+
+dim(life_expectancy)
+summary(life_expectancy)
+```
+
+```{r}
+head(life_expectancy)
+colnames(life_expectancy)[which(names(life_expectancy) == "Income.composition.of.resources")] <- "Income.comp"
+life_expectancy$Status <- as.factor(life_expectancy$Status)
+life_expectancy$Country <- as.factor(life_expectancy$Country)
+```
+
+```{r}
+str(life_expectancy)
+```
+
+# 1 Investigating correlations
+For this part, we will check whether there is a correlation between the different variables within the life expectancy dataset. First the variables will be converted to a numerical format.  
+
+## Heatmapping
+```{r}
+data_var <- life_expectancy %>% select_if(is.numeric)
+
+ggcorr(data_var, label = T, label_size = 2.2, label_round = 2, hjust = 1, size = 3.5, color = "black", layout.exp = 5, low = "red2", mid = "orange", high = "springgreen", name = "Correlation")
+```
+
+Life.expectancy is the strongest correlated with Income.comp (0.72) and Schooling (0.75), but it is negatively correlated with Adult.Mortality. If the mortality rate of the adult is high, the life expectancy of the people within this dataset will be low. But the strongest correlations are infant.deaths with under.five.deaths (exactly 1), thinness..1.19 years and thinness.5.9.years (0.94) and between percentage.expenditure and Gross Domestic Product per capita (GDP) (0.9). But we will create a scatterplot to visualise the strongest correlation of Life.expectancy, which is the correlation between between Life.expectancy and Schooling. 
+
+```{r}
+ggplot(data_var,
+       aes(x = Life.expectancy, 
+           y = Schooling)) +
+  geom_point(aes(colour = Life.expectancy), size = 1)
+```
+
+## Polio, Diphtheria and Hepatitis B coverage
+
+The Global Vaccine Action Plan (GVAP) has publicized the National Immunization Coverage Scorecards Estimates for 2018, in which the GVAP mentions their global immunization goals (https://www.who.int/publications/m/item/national-immunization-coverage-scorecards-estimates-for-2018). One of the goals is that all countries are to reach 90% national immunization coverage for diseases such as hepatitis B, diphtheria, tetanus, pertussis and polio. The World Health Organization states that the immunization coverage is a good indicator of health system performance (https://www.who.int/data/gho/indicator-metadata-registry/imr-details/95). In order to test how good of an indicator the immunization coverage is, visualizations will be made on the coverage of polio, diphtheria and hepatitis B. 
+
+```{r}
+life_expectancy_diseases <- life_expectancy %>% # Divide the diseases into two groups with ifelse()
+                                  mutate(Polio = ifelse(Polio < 90, "<90% covered", ">=90% covered"),
+                                         Polio = as.factor(Polio),
+                                         Diphtheria = ifelse(Diphtheria < 90, "<90% covered", ">=90% covered"),
+                                         Diphtheria = as.factor(Diphtheria),
+                                         Hepatitis.B = ifelse(Hepatitis.B < 90, "<90% covered", ">=90% covered"),
+                                         Hepatitis.B = as.factor(Hepatitis.B))
+
+life_expectancy_diseases <- life_expectancy_diseases %>%
+                                                        drop_na()
+```
+
+### Polio coverage
+```{r}
+life_expectancy_diseases %>% 
+                         group_by(Polio) %>% 
+                         summarise(count = n(), .groups = 'drop') %>% 
+                         mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+```
+
+```{r}
+polio_plot <-  ggplot(life_expectancy_diseases, aes(x=Polio, y = Life.expectancy, fill = Polio)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("red", "green2")) +
+                labs(x = "Polio Coverage", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+ggplotly(polio_plot)
+```
+
+The polio coverage is at 57.55%, which means that there are unfortunately still many countries that do not have a polio coverage of 90% or above. The median for countries with a polio coverage of 90% of above is at the age of 73.5, while the median for countries with a polio coverage of 90% or below is at the age of 65.35. That is a gap of over 8 years. 
+
+### Diphtheria coverage
+```{r}
+life_expectancy_diseases %>% 
+                         group_by(Diphtheria) %>% 
+                         summarise(count = n(), .groups = 'drop') %>% 
+                         mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+```
+
+```{r}
+diphtheria_plot <- ggplot(life_expectancy_diseases, aes(x=Diphtheria, y = Life.expectancy, fill = Diphtheria)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("red", "green2")) +
+                labs(x = "Diphtheria Coverage", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+ggplotly(diphtheria_plot)
+```
+
+The diphtheria coverage is at 57.31%, similar to that of polio. The median for countries with a diphtheria coverage of 90% of above is at the age of 73.6, while the median for countries with a polio coverage of 90% or below is at the age of 65.45. The diphtheria coverage is very similar to that of polio, which might indicate that vaccinations against polio and diphtheria are given at the same time. 
+
+### Hepatitis B coverage
+```{r}
+life_expectancy_diseases %>% 
+                         group_by(Hepatitis.B) %>% 
+                         summarise(count = n(), .groups = 'drop') %>% 
+                         mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+```
+
+```{r}
+hepatitis_plot <-  ggplot(life_expectancy_diseases, aes(x=Hepatitis.B, y = Life.expectancy, fill = Hepatitis.B)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("red", "green2")) +
+                labs(x = "Hepatitis B Coverage", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+ggplotly(hepatitis_plot)
+```
+
+The amount of countries that have a Hepatitis B coverage of 90% or above seem to be making out more or less half of the observations. In the same trend as the polio and diphtheria coverage, the hepatitis B coverage shows a higher life expectancy in countries where the coverage is at 90% or above. As it turns out, the immunization coverage appears to be a good indicator of health system performance, as the life expectancy is higher in countries where the coverage of diseases is at 90% or above. 
+
+## Impact of Schooling
+
+Life expectancy is the highest for those who had been educated beyond high school. So we can conclude that most of the older people in this dataset did have a longer life expectancy in relation to the people with a lower life expectancy. There are some few outliers as you can see in the plot, but the vast majority had > 10 years of education. This could also be summarised within the linear model between Life.expectancy and Schooling (lm_life) and plotted in a graph: 
+
+```{r}
+lm_life <- lm(formula = Schooling ~ Life.expectancy, data = data_var)
+summary(lm_life)
+```
+
+## Linear Regression
+```{r}
+effect_plot(lm_life, pred = Life.expectancy, interval = TRUE, partial.residuals = TRUE, colors = "magenta", point.color = "darkorchid4")
+```
+
+# 2 Random Forest modelling
+## Methodology
+
+Random forest out of the box can't handle missing values so we use the roughfix method which follows the following approach:
+"NAs are replaced with column medians .... This is used as a starting point for inputing missing values by random forest
+missfill= 1,2 does a fast replacement of the missing values, for the training set (if equal to 1) and a more careful replacement (if equal to 2). mfixrep= k with missfill=2 does a slower, but usually more effective, replacement using proximities with k iterations on the training set only. (Requires nprox >0)."
+
+## Creating a training and testing set
+```{r}
+
+set.seed(1337)
+smp_size <- floor(0.8 * nrow(life_expectancy))
+train_ind <- sample(seq_len(nrow(life_expectancy)), size = smp_size)
+df_train <- life_expectancy[train_ind,]
+df_test <- life_expectancy[-train_ind,]
+rf_model <- randomForest(Life.expectancy ~ ., 
+                         data = df_train %>% dplyr::select(!c(Country)),
+                         na.action = na.roughfix
+                         )
+rf_model
+
+```
+
+### Plot 1
+```{r}
+
+mse <- function(y_true, y_pred) {
+  mean((y_true - y_pred)^2)
+}
+
+imp <- data.frame(importance(rf_model)) %>% arrange(desc(IncNodePurity)) 
+ggplot() +
+  geom_bar(aes(x=reorder(rownames(imp), -imp$IncNodePurity),y=imp$IncNodePurity), stat="identity") +
+  labs(y = "Feature Importance", x = "Feature") +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+The random forest model has shown us that the schooling variable is not as important as some other variables. For example, the barplot shows that the number of HIV deaths plays a huge role as a predictor for life expectancy. The countries where HIV leads to huge numbers of deaths are generally underdeveloped and have worse living conditions, as well as schooling; which are possible contributors to the high HIV death tolls. 
+The human development index serves as a statistic composition of life expectancy, education and per capita income. Therefore, it also makes sense that this is an important variable.
+
+### Plot 2
+```{r}
+pred <- predict(rf_model, newdata = df_test)
+ggplot(df_test) +
+  geom_hex(aes(x=pred, y = Life.expectancy), bins = 60) +  
+  scale_fill_continuous(type = "viridis") +
+  theme_bw() +
+  geom_abline()
+
+```
+
+The plot shows how well the predictions on the test set fit to the actual values. We see that most of the values are very close to the diagonal line, indicating a good fit of the model. The random tree model has not been able to predict the countries that have actually have a very high life expectancy.
+
+# 3 Best regression model
+
+```{r}
+pred_plot <- function(model) {
+  # Created a test set for lstat in order to make predictions
+  x_pred <- df_test$Schooling
+  y_pred <- predict(model, newdata = tibble(Schooling = x_pred))
+  
+  # Plot with the real data and a prediction line
+df_train %>%
+    ggplot(aes(x = Schooling , y = Life.expectancy)) +
+    geom_point(aes(color=Status)) +
+    geom_line(data = tibble(Schooling = x_pred, Life.expectancy = y_pred), size = 1, col = "red") +
+    theme_minimal()
+}
+```
+
+```{r}
+pred_plot2 <- function(model) {
+  # Created a test set for lstat in order to make predictions
+  x_pred <- df_test$HIV.AIDS
+  y_pred <- predict(model, newdata = tibble(HIV.AIDS = x_pred))
+  
+  # Plot with the real data and a prediction line
+df_train %>%
+    ggplot(aes(x = HIV.AIDS , y = Life.expectancy)) +
+    geom_point(aes(color=Status)) +
+    geom_line(data = tibble(HIV.AIDS = x_pred, Life.expectancy = y_pred), size = 1, col = "red") +
+    theme_minimal()
+}
+```
+
+```{r}
+#Linear regression life expectancy
+lr_life <- lm(Life.expectancy ~ Schooling, data = df_train)
+#pred_plot(lr_life)
+```
+```{r}
+#Polynomial 3rd degree
+#pn3_life <- lm(Life.expectancy ~ poly(Schooling, 3), data = df_train)
+pn3_life <- lm(Life.expectancy ~ Schooling + I(Schooling^2) + I(Schooling^3), data = df_train)
+#pred_plot(pn3_life)
+```
+```{r}
+# Piecewise constant
+# create new dataset without missing data
+newdata <- na.omit(df_train) 
+sections <- c(-Inf, quantile(newdata$Schooling, probs = c(.2, .4, .6, .8)), Inf)
+pwc_life <- lm(Life.expectancy ~ cut(Schooling, sections), data = newdata)
+#pred_plot(pwc_life)
+```
+
+```{r}
+# Piecewise polynomial
+
+piecewise_cubic_basis <- function(vec, knots = 1) {
+  # If there is only one section, just return the 3rd order polynomial
+  if (knots == 0) return(poly(vec, degree = 3, raw = TRUE))
+  
+  # cut the vector
+  cut_vec <- cut(vec, breaks = knots + 1)
+  
+  # initialise a matrix for the piecewise polynomial
+  out <- matrix(nrow = length(vec), ncol = 0)
+  
+  # loop over the levels of the cut vector
+  for (lvl in levels(cut_vec)) {
+    
+    # temporary vector
+    tmp <- vec
+    
+    # set all values to 0 except the current section
+    tmp[cut_vec != lvl] <- 0
+    
+    # add the polynomial based on this vector to the matrix
+    out <- cbind(out, poly(tmp, degree = 3, raw = TRUE))
+    
+  }
+  
+  out
+}
+pwp_life <- lm(Life.expectancy ~ piecewise_cubic_basis(Schooling, 3), data = df_train)
+
+```
+
+```{r}
+# Cubic spline
+library(splines)
+bs_life <- lm(Life.expectancy ~ bs(HIV.AIDS, knots = median(Schooling)), data = df_train)
+#pred_plot2(bs_life)
+
+```
+
+```{r}
+# Natural spline
+
+ns3_life <- lm(Life.expectancy ~ ns(HIV.AIDS, df = 3), data = df_train)
+#pred_plot2(ns3_life)
+```
+
+```{r}
+library(cowplot)
+plot_grid(
+  pred_plot(lr_life) + ggtitle("Linear regression"),
+  pred_plot(pn3_life) + ggtitle("Polynomial"),
+  pred_plot(pwc_life) + ggtitle("Piecewise constant"),
+  pred_plot(pwp_life) + ggtitle("Piecewise polynomial")
+
+)
+```
+ 
+ With this grid graph we can see that overall developed countries have more years of schooling and thus, more life expectancy. 
+
+```{r}
+plot_grid(
+  pred_plot2(bs_life) + ggtitle("Cubic spline"),
+  pred_plot2(ns3_life) + ggtitle("Natural spline")
+)
+```
+
+ On the contrary, populations with high rate of HIV are not even registered and the prediction becomes unclear but we can observe that the points indicate low life expectancy in that case.
+ The best life prediction is seen at 0% HIV, where developed countries are placed.
